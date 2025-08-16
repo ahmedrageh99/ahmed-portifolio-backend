@@ -32,12 +32,12 @@ const authLimiter = rateLimit({
 });
 app.use(['/api/login', '/api/register', '/request-password-reset'], authLimiter);
 
-// MongoDB Connection
-const MONGO_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/portfolio';
+// ✅ MongoDB Atlas Connection
+const MONGO_URI = process.env.MONGODB_URI;
 const SECRET = process.env.SECRET_KEY || 'devSecret';
 
-mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
-  .then(() => console.log('✅ MongoDB connected'))
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('✅ MongoDB Atlas connected'))
   .catch(err => console.error('❌ Mongo error', err));
 
 // Schemas
@@ -75,7 +75,7 @@ function authMiddleware(req, res, next) {
   }
 }
 
-// ✅ Root route (Fix for Render showing "Cannot GET /")
+// ✅ Root route
 app.get('/', (req, res) => {
   res.send('🚀 Backend Portfolio API is running successfully!');
 });
@@ -89,7 +89,6 @@ app.post('/api/contact', (req, res) => {
 });
 
 // ====================== AUTH ======================
-
 app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body || {};
   if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
@@ -119,17 +118,6 @@ app.get('/me', authMiddleware, async (req, res) => {
   res.json(user);
 });
 
-app.put('/profile', authMiddleware, async (req, res) => {
-  const { email, password } = req.body || {};
-  const user = await User.findById(req.user.userId);
-  if (!user) return res.status(404).send('User not found');
-
-  if (email) user.email = email;
-  if (password) user.password = await bcrypt.hash(password, 10);
-  await user.save();
-  res.send('Profile updated');
-});
-
 // ====================== PROJECTS CRUD ======================
 app.get('/user-projects', authMiddleware, async (req, res) => {
   res.json(await Project.find({ userId: req.user.userId }).sort({ createdAt: -1 }));
@@ -140,22 +128,6 @@ app.post('/user-projects', authMiddleware, async (req, res) => {
   if (!name || !url) return res.status(400).send('Name and URL required');
   const project = await Project.create({ userId: req.user.userId, name, url });
   res.status(201).json(project);
-});
-
-app.put('/user-projects/:id', authMiddleware, async (req, res) => {
-  const { name, url } = req.body || {};
-  const proj = await Project.findOne({ _id: req.params.id, userId: req.user.userId });
-  if (!proj) return res.status(404).send('Project not found');
-  if (name) proj.name = name;
-  if (url) proj.url = url;
-  await proj.save();
-  res.json(proj);
-});
-
-app.delete('/user-projects/:id', authMiddleware, async (req, res) => {
-  const del = await Project.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
-  if (!del) return res.status(404).send('Project not found');
-  res.send('Deleted');
 });
 
 // ====================== TODOS CRUD ======================
@@ -169,22 +141,6 @@ app.post('/todos', authMiddleware, async (req, res) => {
   if (error) return res.status(400).json({ message: error.message });
   const todo = await Todo.create({ userId: req.user.userId, text: value.text });
   res.status(201).json(todo);
-});
-
-app.put('/todos/:id', authMiddleware, async (req, res) => {
-  const { text, done } = req.body || {};
-  const todo = await Todo.findOne({ _id: req.params.id, userId: req.user.userId });
-  if (!todo) return res.status(404).json({ message: 'Not found' });
-  if (typeof text === 'string') todo.text = text.trim();
-  if (typeof done === 'boolean') todo.done = done;
-  await todo.save();
-  res.json(todo);
-});
-
-app.delete('/todos/:id', authMiddleware, async (req, res) => {
-  const deleted = await Todo.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
-  if (!deleted) return res.status(404).json({ message: 'Not found' });
-  res.sendStatus(204);
 });
 
 // ====================== PASSWORD RESET (Demo) ======================
@@ -219,28 +175,6 @@ app.post('/request-password-reset', async (req, res) => {
   }
 });
 
-app.post('/reset-password', async (req, res) => {
-  const { token, newPassword } = req.body || {};
-  const record = passwordResetTokens.get(token);
-  if (!record) return res.status(400).send('Invalid or expired token');
-  if (Date.now() > record.expires) {
-    passwordResetTokens.delete(token);
-    return res.status(400).send('Token expired');
-  }
-  const user = await User.findById(record.userId);
-  if (!user) return res.status(404).send('User not found');
-  user.password = await bcrypt.hash(newPassword, 10);
-  await user.save();
-  passwordResetTokens.delete(token);
-  res.send('Password reset successfully');
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error('❌ Error:', err);
-  res.status(err.status || 500).json({ message: err.message || 'Server error' });
-});
-
-// Start server
+// ====================== START SERVER ======================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`🚀 API running on port ${PORT}`));
