@@ -1,3 +1,4 @@
+// ====================== DEPENDENCIES ======================
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -23,7 +24,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// Rate limit auth routes
+// Rate limit for auth routes
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -32,13 +33,13 @@ const authLimiter = rateLimit({
 });
 app.use(['/api/login', '/api/register', '/request-password-reset'], authLimiter);
 
-// ====================== DATABASE ======================
+// ====================== DATABASE CONNECTION ======================
 const MONGO_URI = process.env.MONGODB_URI;
 const SECRET = process.env.SECRET_KEY || 'devSecret';
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB Atlas connected'))
-  .catch(err => console.error('❌ Mongo error:', err));
+  .catch(err => console.error('❌ MongoDB error:', err));
 
 // ====================== SCHEMAS ======================
 const userSchema = new mongoose.Schema({
@@ -66,6 +67,7 @@ const Todo = mongoose.model('Todo', todoSchema);
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
+
   try {
     const decoded = jwt.verify(token, SECRET);
     req.user = { userId: decoded.userId || decoded.id, email: decoded.email };
@@ -76,8 +78,7 @@ function authMiddleware(req, res, next) {
 }
 
 // ====================== ROUTES ======================
-
-// ✅ Root route
+// Root route
 app.get('/', (req, res) => {
   res.send('🚀 Backend Portfolio API is running successfully!');
 });
@@ -90,37 +91,29 @@ app.post('/api/contact', (req, res) => {
   res.json({ message: 'Contact received' });
 });
 
-// ========== AUTH ==========
+// ====================== AUTH ======================
 app.post('/api/register', async (req, res) => {
-  try {
-    const { name, email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
+  const { name, email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
 
-    const exists = await User.findOne({ email });
-    if (exists) return res.status(400).json({ message: 'User already exists' });
+  const exists = await User.findOne({ email });
+  if (exists) return res.status(400).json({ message: 'User already exists' });
 
-    const hashed = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hashed });
-    res.json({ message: 'User registered successfully', id: user._id });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
+  const hashed = await bcrypt.hash(password, 10);
+  const user = await User.create({ name, email, password: hashed });
+  res.json({ message: 'User registered successfully', id: user._id });
 });
 
 app.post('/api/login', async (req, res) => {
-  try {
-    const { email, password } = req.body || {};
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: 'Invalid email or password' });
+  const { email, password } = req.body || {};
+  const user = await User.findOne({ email });
+  if (!user) return res.status(400).json({ message: 'Invalid email or password' });
 
-    const ok = await bcrypt.compare(password, user.password);
-    if (!ok) return res.status(400).json({ message: 'Invalid email or password' });
+  const ok = await bcrypt.compare(password, user.password);
+  if (!ok) return res.status(400).json({ message: 'Invalid email or password' });
 
-    const token = jwt.sign({ userId: user._id, email: user.email }, SECRET, { expiresIn: '1h' });
-    res.json({ token, name: user.name });
-  } catch (err) {
-    res.status(500).json({ message: 'Server error', error: err.message });
-  }
+  const token = jwt.sign({ userId: user._id, email: user.email }, SECRET, { expiresIn: '1h' });
+  res.json({ token, name: user.name });
 });
 
 app.get('/me', authMiddleware, async (req, res) => {
@@ -128,7 +121,7 @@ app.get('/me', authMiddleware, async (req, res) => {
   res.json(user);
 });
 
-// ========== PROJECTS ==========
+// ====================== PROJECTS CRUD ======================
 app.get('/user-projects', authMiddleware, async (req, res) => {
   res.json(await Project.find({ userId: req.user.userId }).sort({ createdAt: -1 }));
 });
@@ -140,7 +133,7 @@ app.post('/user-projects', authMiddleware, async (req, res) => {
   res.status(201).json(project);
 });
 
-// ========== TODOS ==========
+// ====================== TODOS CRUD ======================
 app.get('/todos', authMiddleware, async (req, res) => {
   res.json(await Todo.find({ userId: req.user.userId }).sort({ createdAt: -1 }));
 });
@@ -153,7 +146,7 @@ app.post('/todos', authMiddleware, async (req, res) => {
   res.status(201).json(todo);
 });
 
-// ========== PASSWORD RESET ==========
+// ====================== PASSWORD RESET ======================
 const passwordResetTokens = new Map();
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -186,20 +179,21 @@ app.post('/request-password-reset', async (req, res) => {
 });
 
 // ====================== START SERVER ======================
-const PORT = process.env.PORT || 3000;
+const DEFAULT_PORT = parseInt(process.env.PORT, 10) || 3000;
 
 function startServer(port) {
   const server = app.listen(port, () => {
     console.log(`🚀 API running on port ${port}`);
   });
+
   server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-      console.warn(`⚠️ Port ${port} in use, trying ${port + 1}...`);
+      console.warn(`⚠️ Port ${port} is busy, trying ${port + 1}...`);
       startServer(port + 1);
     } else {
-      throw err;
+      console.error('❌ Server error:', err);
     }
   });
 }
 
-startServer(PORT);
+startServer(DEFAULT_PORT);
