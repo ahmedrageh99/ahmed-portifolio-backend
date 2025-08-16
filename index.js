@@ -13,7 +13,7 @@ const crypto = require('crypto');
 
 const app = express();
 
-// Middleware
+// ====================== MIDDLEWARE ======================
 app.use(express.json());
 app.use(helmet());
 app.use(morgan('dev'));
@@ -32,15 +32,15 @@ const authLimiter = rateLimit({
 });
 app.use(['/api/login', '/api/register', '/request-password-reset'], authLimiter);
 
-// ✅ MongoDB Atlas Connection
+// ====================== DATABASE ======================
 const MONGO_URI = process.env.MONGODB_URI;
 const SECRET = process.env.SECRET_KEY || 'devSecret';
 
 mongoose.connect(MONGO_URI)
   .then(() => console.log('✅ MongoDB Atlas connected'))
-  .catch(err => console.error('❌ Mongo error', err));
+  .catch(err => console.error('❌ Mongo error:', err));
 
-// Schemas
+// ====================== SCHEMAS ======================
 const userSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true, required: true },
@@ -62,7 +62,7 @@ const todoSchema = new mongoose.Schema({
 }, { timestamps: true });
 const Todo = mongoose.model('Todo', todoSchema);
 
-// Middleware for auth
+// ====================== AUTH MIDDLEWARE ======================
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ message: 'Unauthorized' });
@@ -74,6 +74,8 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ message: 'Invalid token' });
   }
 }
+
+// ====================== ROUTES ======================
 
 // ✅ Root route
 app.get('/', (req, res) => {
@@ -88,29 +90,37 @@ app.post('/api/contact', (req, res) => {
   res.json({ message: 'Contact received' });
 });
 
-// ====================== AUTH ======================
+// ========== AUTH ==========
 app.post('/api/register', async (req, res) => {
-  const { name, email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
+  try {
+    const { name, email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
 
-  const exists = await User.findOne({ email });
-  if (exists) return res.status(400).json({ message: 'User already exists' });
+    const exists = await User.findOne({ email });
+    if (exists) return res.status(400).json({ message: 'User already exists' });
 
-  const hashed = await bcrypt.hash(password, 10);
-  const user = await User.create({ name, email, password: hashed });
-  res.json({ message: 'User registered successfully', id: user._id });
+    const hashed = await bcrypt.hash(password, 10);
+    const user = await User.create({ name, email, password: hashed });
+    res.json({ message: 'User registered successfully', id: user._id });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 });
 
 app.post('/api/login', async (req, res) => {
-  const { email, password } = req.body || {};
-  const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ message: 'Invalid email or password' });
+  try {
+    const { email, password } = req.body || {};
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: 'Invalid email or password' });
 
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(400).json({ message: 'Invalid email or password' });
+    const ok = await bcrypt.compare(password, user.password);
+    if (!ok) return res.status(400).json({ message: 'Invalid email or password' });
 
-  const token = jwt.sign({ userId: user._id, email: user.email }, SECRET, { expiresIn: '1h' });
-  res.json({ token, name: user.name });
+    const token = jwt.sign({ userId: user._id, email: user.email }, SECRET, { expiresIn: '1h' });
+    res.json({ token, name: user.name });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
 });
 
 app.get('/me', authMiddleware, async (req, res) => {
@@ -118,7 +128,7 @@ app.get('/me', authMiddleware, async (req, res) => {
   res.json(user);
 });
 
-// ====================== PROJECTS CRUD ======================
+// ========== PROJECTS ==========
 app.get('/user-projects', authMiddleware, async (req, res) => {
   res.json(await Project.find({ userId: req.user.userId }).sort({ createdAt: -1 }));
 });
@@ -130,7 +140,7 @@ app.post('/user-projects', authMiddleware, async (req, res) => {
   res.status(201).json(project);
 });
 
-// ====================== TODOS CRUD ======================
+// ========== TODOS ==========
 app.get('/todos', authMiddleware, async (req, res) => {
   res.json(await Todo.find({ userId: req.user.userId }).sort({ createdAt: -1 }));
 });
@@ -143,7 +153,7 @@ app.post('/todos', authMiddleware, async (req, res) => {
   res.status(201).json(todo);
 });
 
-// ====================== PASSWORD RESET (Demo) ======================
+// ========== PASSWORD RESET ==========
 const passwordResetTokens = new Map();
 const transporter = nodemailer.createTransport({
   service: 'gmail',
@@ -177,4 +187,19 @@ app.post('/request-password-reset', async (req, res) => {
 
 // ====================== START SERVER ======================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`🚀 API running on port ${PORT}`));
+
+function startServer(port) {
+  const server = app.listen(port, () => {
+    console.log(`🚀 API running on port ${port}`);
+  });
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`⚠️ Port ${port} in use, trying ${port + 1}...`);
+      startServer(port + 1);
+    } else {
+      throw err;
+    }
+  });
+}
+
+startServer(PORT);
